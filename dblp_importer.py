@@ -3,10 +3,7 @@ Script that import a DBLP database to a neo4j instance
 """
 import sys, os, argparse, json, time, datetime
 import tqdm
-
-
-def process_line(line, db_instance):
-    parsed_line = json.loads(line)
+from fill_db import Consumer
 
 
 if __name__ == "__main__":
@@ -35,13 +32,16 @@ if __name__ == "__main__":
     else:
         stream_input = sys.stdin
 
+    consumer = Consumer(args.db_host, args.db_user, args.db_pswd)
     iterator = tqdm.tqdm(stream_input, total=total_lines, unit="line")
     for l in iterator:
-        process_line(l, db_instance=None)
+        consumer.feed_line(l)
         if args.stop_it is not None and iterator.n > args.stop_it:
             break
 
+    consumer.close()
     iterator.close()
+    
     if iterator.n == 0:
         sys.exit()
     total_t = datetime.timedelta(seconds=time.time() - iterator.start_t)

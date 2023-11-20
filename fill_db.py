@@ -26,8 +26,26 @@ class Consumer:
     def __init__(self, uri, user, password):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
         self.tx_limit=100
+        self.citation=[]
+        self.authored=[]
         self.tmp_article_array = []
         self.tmp_author_array = []
+
+    def feed_line(self, json_line):
+        line_dict = json.loads(json_line) # maybe replace with the panda version
+        authored_flag = "authors" in line_dict
+        citation_flag = "references" in line_dict
+
+        tmp_article = Article(line_dict["_id"],line_dict["title"])
+        self.insert_article(tmp_article)
+        if(citation_flag):
+            for references in line_dict["references"]:
+                self.citation.append((tmp_article._id,references))
+        if(authored_flag):
+            for author in line_dict["authors"]:
+                self.authored.append((author.get("_id",None),tmp_article._id))
+
+        
         
 
     def close(self):
@@ -86,37 +104,14 @@ class Consumer:
 
 
 
-
-# replace file with stdin when the time is right
-
-#articles={}
-#authors={}
-citation=[]
-authored=[]
-
 if __name__ == "__main__":
     print('Hello neo4j Exporter!')
-    with open('tst.json','r') as file:
+    with open('tst.json','r', encoding="utf-8") as file:
         my_consumer = Consumer(URI, USERNAME, PASSWORD) # init
         for line in file:
-            dic=json.loads(line) # maybe replace with the panda version
-
-            authored_flag = "authors" in dic
-            citation_flag = "references" in dic
-
-            tmp_article = Article(dic["_id"],dic["title"])
-            my_consumer.insert_article(tmp_article)
-
-            if(citation_flag):
-                for references in dic["references"]:
-                    citation.append((tmp_article._id,references))
-            if(authored_flag):
-                for author in dic["authors"]:
-                    authored.append((author.get("_id",None),tmp_article._id))
+            my_consumer.feed_line(line)
         my_consumer.close() # vital, ca insert les objets qui n'ont pas encore été push
             
-
-print(len(articles))
 
 '''
 {
