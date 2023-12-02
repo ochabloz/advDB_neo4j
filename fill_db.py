@@ -37,7 +37,7 @@ class Consumer:
 
     def __init__(self, uri, user, password):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
-        self.tx_limit=1
+        self.tx_limit=200
         self.tmp_article_array = []
         self.tmp_author_array = []
         self.tmp_cites_array = []
@@ -113,61 +113,85 @@ class Consumer:
         with self.driver.session() as session:
             query = f"CREATE (a:Article {{_id: '{article._id}',title: '{article.title}'}})"
             result = session.write_transaction(self._run_query, query)
-            print(result)
+            #print(result)
     '''
 
     # act like the function below is private
     def insert_articles(self, articles):
         with self.driver.session() as session:
-            tx_query = ""
+            tx_query = "WITH ["
             for article in articles:
-                tx_query += f"MERGE (a:Article {{_id: '{article._id}'}})"
-                if article.title is not None: # if is a security maybe don't do it to gain some fast/h
-                    tx_query += f" ON CREATE SET a.title = '{article.title}'" 
-                    tx_query += f" ON MATCH SET a.title = '{article.title}'" 
-                tx_query += f","
+                if article.title is not None: # maybe do a ternary, or in constructor give default title, I don't know python well enough to know what is fastest
+                    tx_query += f" {{_id: '{article._id}', title: '{article.title}' }},"
+                else:
+                    tx_query += f" {{_id: '{article._id}', title: 'n/a' }},"
+            tx_query = tx_query[:-1] # remove last comma
 
-            #print(tx_query[:-1])
-            result = session.execute_write(self._run_query, tx_query[:-1]) # on enleve la derniere virgule
-            print(result)
+            tx_query += "] AS articles "
+            tx_query += "UNWIND articles AS article "
+            tx_query += "MERGE (a:Article { _id: article._id})"
+            tx_query += " SET a.title = article.title" 
+            # tx_query += " ON CREATE SET a.title = article.title" 
+            # tx_query += " ON MATCH SET a.title = article.title" 
+
+            result = session.execute_write(self._run_query, tx_query)
+            #print(result)
 
     # act like the function below is private
     def insert_authors(self, authors):
         with self.driver.session() as session:
-            tx_query = ""
-            for author in authors:
-                tx_query += f"MERGE (a:Author {{_id: '{author._id}'}})" # MERGE to avoid doublons
-                if author.name is not None:
-                        tx_query += f" ON CREATE SET a.name = '{author.name}'" 
-                        tx_query += f" ON MATCH SET a.name = '{author.name}'" 
-                tx_query += f","
 
-            result = session.execute_write(self._run_query, tx_query[:-1]) # we remove last comma
-            print(result)
+            tx_query = "WITH ["
+            for author in authors:
+                if author.name is not None: # maybe do a ternary, or in constructor give default title, I don't know python well enough to know what is fastest
+                    tx_query += f" {{_id: '{author._id}', name: '{author.name}' }},"
+                else:
+                    tx_query += f" {{_id: '{author._id}', name: 'n/a' }},"
+            tx_query = tx_query[:-1] # remove last comma
+
+            tx_query += "] AS authors "
+            tx_query += "UNWIND authors AS author "
+            tx_query += "MERGE (a:Author { _id: author._id})"
+            tx_query += " SET a.name = author.name" 
+            # tx_query += " ON CREATE SET a.name = author.name" 
+            # tx_query += " ON MATCH SET a.name = author.name" 
+
+            result = session.execute_write(self._run_query, tx_query)
+            #print(result)
 
     # act like the function below is private
     def insert_citess(self, citess):
         with self.driver.session() as session:
-            tx_query = ""
+            tx_query = "WITH ["
             for cites in citess:
-                # will probably not work correctly because neo4j is garbage
-                tx_query += f"MERGE (a:Article {{_id: '{cites.article_id_left}'}}) MERGE (b:Article {{_id: '{cites.article_id_right}'}}) MERGE  (a) -[:CITES]-> (b) " # How to make the thing not directional ?
-                tx_query += f","
+                tx_query += f" {{article_id_left: '{cites.article_id_left}', article_id_right: '{cites.article_id_right}' }},"
+            tx_query = tx_query[:-1] # remove last comma
 
-            result = session.execute_write(self._run_query, tx_query[:-1]) # we remove last comma
-            print(result)
+            tx_query += "] AS citess "
+            tx_query += "UNWIND citess AS cites "
+            # look into the direction of relathionship in details
+            tx_query += "MERGE (a:Article { _id: cites.article_id_left }) MERGE (b:Article { _id: cites.article_id_right}) MERGE  (a) -[:CITES]-> (b)"
+
+            result = session.execute_write(self._run_query, tx_query) 
+            #print(result)
 
     # act like the function below is private
     def insert_authoreds(self, authoreds):
         with self.driver.session() as session:
-            tx_query = ""
-            for authored in authoreds:
-                # will probably not work correctly because neo4j is garbage
-                tx_query += f"MERGE (a:Auhor {{_id: '{authored.author_id}'}}) MERGE (b:Article {{_id: '{authored.article_id}'}}) MERGE (a) -[:AUTHAURED]-> (b)" # How to make the thing not directional ?
-                tx_query += f","
 
-            result = session.execute_write(self._run_query, tx_query[:-1]) # we remove last comma
-            print(result)
+            tx_query = "WITH ["
+            for authored in authoreds:
+                tx_query += f" {{author_id: '{authored.author_id}', article_id: '{authored.article_id}' }},"
+            tx_query = tx_query[:-1] # remove last comma
+
+            tx_query += "] AS authoreds "
+            tx_query += "UNWIND authoreds AS authored "
+            # look into the direction of relathionship in details
+            tx_query += "MERGE (a:Author { _id: authored.author_id }) MERGE (b:Article { _id: authored.article_id}) MERGE  (a) -[:AUTHAURED]-> (b)"
+
+            result = session.execute_write(self._run_query, tx_query) 
+            #print(result)
+
 
     def set_constraints(self): # should speed MERGE like crazy
         with self.driver.session() as session:
@@ -179,7 +203,7 @@ class Consumer:
             result = session.execute_write(self._run_query, tx_query02)
             result = session.execute_write(self._run_query, tx_query1)
             result = session.execute_write(self._run_query, tx_query2)
-            print(result)
+            #print(result)
 
     def flush_db(self):
         with self.driver.session() as session:
@@ -191,11 +215,13 @@ class Consumer:
 
             #result = session.write_transaction(self._run_query, tx_query1)
             #result = session.write_transaction(self._run_query, tx_query2)
-            print(result)
+            #print(result)
 
     @staticmethod
     def _run_query(tx, query):
-        return tx.run(query)
+        result = tx.run(query)
+        print(f"query: {query[:20]} : {result}")
+        return result
 
 
 
