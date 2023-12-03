@@ -1,4 +1,5 @@
 import json
+import re
 from neo4j import GraphDatabase
 
 URI = "neo4j://192.168.0.121:7687"
@@ -14,14 +15,14 @@ PASSWORD = "Password123."
 class Article:
     def __init__(self, _id, title):
         self._id=_id
-        self.title=title
+        self.title=re.sub(r'"',r'\"',str(title))
     def to_string(self):
             print(str(self._id)+" "+str(self.title))
 
 class Author:
     def __init__(self, _id, name):
         self._id=_id
-        self.name=name
+        self.name=re.sub(r'"',r'\"',str(name))
 
 class Cites:
     def __init__(self, article_id_left, article_id_right):
@@ -37,7 +38,7 @@ class Consumer:
 
     def __init__(self, uri, user, password):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
-        self.tx_limit=200
+        self.tx_limit=1000 # this number controls the fast: the bigger it is the faster it goes, but the more RAM (DB and Python !!) is needed
         self.tmp_article_array = []
         self.tmp_author_array = []
         self.tmp_cites_array = []
@@ -48,6 +49,11 @@ class Consumer:
         authored_flag = "authors" in line_dict
         citation_flag = "references" in line_dict
 
+        if not '_id' in line_dict:
+            tmp_art_title = line_dict.get("title", None)
+            print(f"missing id: title {tmp_art_title}") # what do we do with these?
+            return
+
         tmp_article = Article(line_dict["_id"],line_dict["title"])
         self.insert_article(tmp_article)
         if(citation_flag):
@@ -57,8 +63,9 @@ class Consumer:
         if(authored_flag):
             for author in line_dict["authors"]:
                 if not '_id' in author:
-                        print("missing id")
-                        break
+                    tmp_auth_name = author.get("name", None)
+                    print(f"missing id: name {tmp_auth_name}") # what do we do with these?
+                    break
                 tmp_author = Author(author["_id"],author.get("name", None))
                 tmp_authored = Authored(tmp_author._id,tmp_article._id)
                 self.insert_author(tmp_author)
@@ -78,6 +85,7 @@ class Consumer:
             self.insert_authoreds(self.tmp_authored_array)
         self.driver.close()
 
+    # these functions would be some neat template functions in cpp
     def insert_article(self, article):
         self.tmp_article_array.append(article)
 
@@ -122,7 +130,7 @@ class Consumer:
             tx_query = "WITH ["
             for article in articles:
                 if article.title is not None: # maybe do a ternary, or in constructor give default title, I don't know python well enough to know what is fastest
-                    tx_query += f" {{_id: '{article._id}', title: '{article.title}' }},"
+                    tx_query += f" {{_id: '{article._id}', title: \"{article.title}\" }},"
                 else:
                     tx_query += f" {{_id: '{article._id}', title: 'n/a' }},"
             tx_query = tx_query[:-1] # remove last comma
@@ -144,7 +152,7 @@ class Consumer:
             tx_query = "WITH ["
             for author in authors:
                 if author.name is not None: # maybe do a ternary, or in constructor give default title, I don't know python well enough to know what is fastest
-                    tx_query += f" {{_id: '{author._id}', name: '{author.name}' }},"
+                    tx_query += f" {{_id: '{author._id}', name: \"{author.name}\" }},"
                 else:
                     tx_query += f" {{_id: '{author._id}', name: 'n/a' }},"
             tx_query = tx_query[:-1] # remove last comma
@@ -219,17 +227,18 @@ class Consumer:
 
     @staticmethod
     def _run_query(tx, query):
+        print(f"query: {query}")
         result = tx.run(query)
-        print(f"query: {query[:20]} : {result}")
+        #print("")
         return result
 
 
 
 if __name__ == "__main__":
     print('Hello neo4j Exporter!')
-    with open('tst.json','r', encoding="utf-8") as file:
+    with open('dblp/mega_lines_2.json','r', encoding="utf-8") as file:
         my_consumer = Consumer(URI, USERNAME, PASSWORD) # init
-        my_consumer.flush_db() # to always start from an empty
+        my_consumer.flush_db() # to always start from an empty DB
         my_consumer.set_constraints()
 
         for line in file:
