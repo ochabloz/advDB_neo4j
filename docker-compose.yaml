@@ -18,10 +18,12 @@ services:
   dblp_import:
     build: .
     environment:
-      NEO4J_HOST: neo4j
-      NEO4J_USER: ${NEO4J_USER}
-      NEO4J_PASWD: ${NEO4J_PASWD}
-      NEO4J_PORT: ${NEO4J_PORTB}
+      DB_HOST: neo4j
+      DB_PORT: ${NEO4J_PORTB}
+      DB_USER: ${NEO4J_USER}
+      DB_PASWD: ${NEO4J_PASWD}
+      DBLP_TX_SIZE: 500
+      STOP_IT: 20000
     volumes:
       - dblp_import_data:/data
 
@@ -31,3 +33,4 @@ services:
 volumes:
   neo4j_data:
   dblp_import_data:
+
