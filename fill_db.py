@@ -36,13 +36,15 @@ class Authored:
 
 class Consumer:
 
-    def __init__(self, uri, user, password):
+    def __init__(self, uri, user, password, tx_limit=1000):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
-        self.tx_limit=1000 # this number controls the fast: the bigger it is the faster it goes, but the more RAM (DB and Python !!) is needed
+        self.tx_limit=tx_limit # this number controls the fast: the bigger it is the faster it goes, but the more RAM (DB and Python !!) is needed
         self.tmp_article_array = []
         self.tmp_author_array = []
         self.tmp_cites_array = []
         self.tmp_authored_array = []
+        self._stats_missing_author = 0
+        self._stats_missing_titles = 0
 
     def feed_line(self, json_line):
         line_dict = json.loads(json_line) # maybe replace with the panda version
@@ -50,8 +52,9 @@ class Consumer:
         citation_flag = "references" in line_dict
 
         if not '_id' in line_dict:
-            tmp_art_title = line_dict.get("title", None)
-            print(f"missing id: title {tmp_art_title}") # what do we do with these?
+            self._stats_missing_titles +=1
+            #tmp_art_title = line_dict.get("title", None)
+            #print(f"missing id: title {tmp_art_title}") # what do we do with these?
             return
 
         tmp_article = Article(line_dict["_id"],line_dict["title"])
@@ -63,8 +66,9 @@ class Consumer:
         if(authored_flag):
             for author in line_dict["authors"]:
                 if not '_id' in author:
-                    tmp_auth_name = author.get("name", None)
-                    print(f"missing id: name {tmp_auth_name}") # what do we do with these?
+                    self._stats_missing_author +=1
+                    #tmp_auth_name = author.get("name", None)
+                    #print(f"missing id: name {tmp_auth_name}") # what do we do with these?
                     break
                 tmp_author = Author(author["_id"],author.get("name", None))
                 tmp_authored = Authored(tmp_author._id,tmp_article._id)
@@ -83,35 +87,36 @@ class Consumer:
             self.insert_citess(self.tmp_cites_array)
         if (len(self.tmp_authored_array) != 0):
             self.insert_authoreds(self.tmp_authored_array)
+        logger.info("Consumer closed. Number of missing: authors ID: %d, titles ID %d", self._stats_missing_author, self._stats_missing_titles)
         self.driver.close()
 
     # these functions would be some neat template functions in cpp
-    def insert_article(self, article):
+    def insert_article(self, article, force=False):
         self.tmp_article_array.append(article)
 
-        if len(self.tmp_article_array)>= self.tx_limit:
+        if (len(self.tmp_article_array)>= self.tx_limit) or force:
             self.insert_articles(self.tmp_article_array)
             self.tmp_article_array.clear()
 
 
-    def insert_author(self, author):
+    def insert_author(self, author, force=False):
         self.tmp_author_array.append(author)
 
-        if len(self.tmp_author_array) >= self.tx_limit:
+        if (len(self.tmp_author_array) >= self.tx_limit) or force:
             self.insert_authors(self.tmp_author_array)
             self.tmp_author_array.clear()
 
-    def insert_cites(self, cites):
+    def insert_cites(self, cites, force=False):
         self.tmp_cites_array.append(cites)
 
-        if len(self.tmp_cites_array) >= self.tx_limit:
+        if (len(self.tmp_cites_array) >= self.tx_limit) or force:
             self.insert_citess(self.tmp_cites_array)
             self.tmp_cites_array.clear()
 
-    def insert_authored(self, authored):
+    def insert_authored(self, authored, force=False):
         self.tmp_authored_array.append(authored)
 
-        if len(self.tmp_authored_array) >= self.tx_limit:
+        if (len(self.tmp_authored_array) >= self.tx_limit) or force:
             self.insert_authoreds(self.tmp_authored_array)
             self.tmp_authored_array.clear()
 
@@ -126,78 +131,63 @@ class Consumer:
 
     # act like the function below is private
     def insert_articles(self, articles):
-        with self.driver.session() as session:
-            tx_query = "WITH ["
-            for article in articles:
-                if article.title is not None: # maybe do a ternary, or in constructor give default title, I don't know python well enough to know what is fastest
-                    tx_query += f" {{_id: '{article._id}', title: \"{article.title}\" }},"
-                else:
-                    tx_query += f" {{_id: '{article._id}', title: 'n/a' }},"
-            tx_query = tx_query[:-1] # remove last comma
-
-            tx_query += "] AS articles "
-            tx_query += "UNWIND articles AS article "
-            tx_query += "MERGE (a:Article { _id: article._id})"
-            tx_query += " SET a.title = article.title" 
-            # tx_query += " ON CREATE SET a.title = article.title" 
-            # tx_query += " ON MATCH SET a.title = article.title" 
-
-            result = session.execute_write(self._run_query, tx_query)
+        articles = [{"_id": article._id, "title": article.title or 'n/a'} for article in articles]
+        result = self.driver.execute_query("""
+            WITH $articles AS batch_articles
+            UNWIND batch_articles AS article
+            MERGE (a:Article { _id: article._id})
+            SET a.title = article.title
+        """, articles=articles)
+        logger.info("added %d articles", len(articles))
             #print(result)
 
     # act like the function below is private
     def insert_authors(self, authors):
-        with self.driver.session() as session:
+        authors = [{"_id": author._id, "name": author.name or 'n/a'} for author in authors]
+        result = self.driver.execute_query("""
+            WITH $authors AS batch_authors
+            UNWIND batch_authors AS author
+            MERGE (a:Author { _id: author._id})
+            SET a.name = author.name
+        """, authors=authors)
 
-            tx_query = "WITH ["
-            for author in authors:
-                if author.name is not None: # maybe do a ternary, or in constructor give default title, I don't know python well enough to know what is fastest
-                    tx_query += f" {{_id: '{author._id}', name: \"{author.name}\" }},"
-                else:
-                    tx_query += f" {{_id: '{author._id}', name: 'n/a' }},"
-            tx_query = tx_query[:-1] # remove last comma
-
-            tx_query += "] AS authors "
-            tx_query += "UNWIND authors AS author "
-            tx_query += "MERGE (a:Author { _id: author._id})"
-            tx_query += " SET a.name = author.name" 
-            # tx_query += " ON CREATE SET a.name = author.name" 
-            # tx_query += " ON MATCH SET a.name = author.name" 
-
-            result = session.execute_write(self._run_query, tx_query)
+        logger.info("added %d authors", len(authors))
             #print(result)
 
     # act like the function below is private
     def insert_citess(self, citess):
-        with self.driver.session() as session:
-            tx_query = "WITH ["
-            for cites in citess:
-                tx_query += f" {{article_id_left: '{cites.article_id_left}', article_id_right: '{cites.article_id_right}' }},"
-            tx_query = tx_query[:-1] # remove last comma
+        citess = [{"article_id_left": cites.article_id_left, "article_id_right": cites.article_id_right} for cites in citess]
+        result = self.driver.execute_query("""
+            WITH $citess AS batch_citess
+            UNWIND batch_citess AS cites
+            MERGE (a:Article { _id: cites.article_id_left }) MERGE (b:Article { _id: cites.article_id_right}) MERGE  (a) -[:CITES]-> (b)
+        """, citess=citess)
+        logger.info("added %d cites", len(citess))
 
-            tx_query += "] AS citess "
-            tx_query += "UNWIND citess AS cites "
-            # look into the direction of relathionship in details
-            tx_query += "MERGE (a:Article { _id: cites.article_id_left }) MERGE (b:Article { _id: cites.article_id_right}) MERGE  (a) -[:CITES]-> (b)"
+        # with self.driver.session() as session:
+        #     tx_query = "WITH ["
+        #     for cites in citess:
+        #         tx_query += f" {{article_id_left: '{cites.article_id_left}', article_id_right: '{cites.article_id_right}' }},"
+        #     tx_query = tx_query[:-1] # remove last comma
 
-            result = session.execute_write(self._run_query, tx_query) 
+        #     tx_query += "] AS citess "
+        #     tx_query += "UNWIND citess AS cites "
+        #     # look into the direction of relathionship in details
+        #     tx_query += "MERGE (a:Article { _id: cites.article_id_left }) MERGE (b:Article { _id: cites.article_id_right}) MERGE  (a) -[:CITES]-> (b)"
+
+        #     result = session.execute_write(self._run_query, tx_query) 
+            
             #print(result)
 
     # act like the function below is private
     def insert_authoreds(self, authoreds):
-        with self.driver.session() as session:
-
-            tx_query = "WITH ["
-            for authored in authoreds:
-                tx_query += f" {{author_id: '{authored.author_id}', article_id: '{authored.article_id}' }},"
-            tx_query = tx_query[:-1] # remove last comma
-
-            tx_query += "] AS authoreds "
-            tx_query += "UNWIND authoreds AS authored "
-            # look into the direction of relathionship in details
-            tx_query += "MERGE (a:Author { _id: authored.author_id }) MERGE (b:Article { _id: authored.article_id}) MERGE  (a) -[:AUTHAURED]-> (b)"
-
-            result = session.execute_write(self._run_query, tx_query) 
+        authoreds = [{"author_id": authored.author_id, "article_id": authored.article_id} for authored in authoreds]
+        result = self.driver.execute_query("""
+            WITH $authoreds AS batch_authoreds
+            UNWIND batch_authoreds AS authored
+            MERGE (a:Author { _id: authored.author_id }) MERGE (b:Article { _id: authored.article_id}) MERGE  (a) -[:AUTHAURED]-> (b)
+        """, authoreds=authoreds)
+        logger.info("added %d authoreds", len(authoreds))
             #print(result)
 
 
@@ -282,3 +272,4 @@ Example JSON entry
     'abstract': ''
 }
 '''
+
