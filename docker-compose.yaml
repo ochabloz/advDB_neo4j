@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:latest
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASWD}
+    ports:
+      - "${NEO4J_PORT}:7474"
+      - "${NEO4J_PORTB}:7687"
+    #volumes:
+      #- neo4j_data:/data
+    deploy:
+        resources:
+            limits:
+              memory: 2G
+
+  dblp_import:
+    build: .
+    environment:
+      NEO4J_HOST: neo4j
+      NEO4J_USER: ${NEO4J_USER}
+      NEO4J_PASWD: ${NEO4J_PASWD}
+      NEO4J_PORT: ${NEO4J_PORTB}
+    volumes:
+      - dblp_import_data:/data
+
+    depends_on:
+      - neo4j
+
+volumes:
+  neo4j_data:
+  dblp_import_data:

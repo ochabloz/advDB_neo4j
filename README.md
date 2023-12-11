@@ -16,3 +16,11 @@ Baseline:
 
 - [Streaming with jq](https://www.reddit.com/r/bash/comments/myoft4/streaming_with_jq/)
 - [Neo4j performance](https://neo4j.com/docs/python-manual/current/performance/ )
+
+
+A retourner:
+ - le nom du pod dans lequel se trouve l'instance neo4j
+ - credentials neo4j
+ - namespace
+ - doit pouvoir voir les logs via rancher
+ - le container doit tourner (while True sleep...)

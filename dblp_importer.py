@@ -4,6 +4,9 @@ Script that import a DBLP database to a neo4j instance
 import sys, os, argparse, json, time, datetime
 import tqdm
 from fill_db import Consumer
+from logging import getLogger
+
+logger = getLogger()
 
 
 if __name__ == "__main__":
@@ -13,7 +16,7 @@ if __name__ == "__main__":
     cmdline_parser.add_argument("--db_host", default=os.environ.get("NEO4J_HOST", "localhost"))
     cmdline_parser.add_argument("--db_port", default=os.environ.get("NEO4J_PORT", "9490"), type=int)
     cmdline_parser.add_argument("--db_user", default=os.environ.get("NEO4J_USER", "neo4j"))
-    cmdline_parser.add_argument("--db_pswd", default=os.environ.get("NEO4J_PSWD", "neo4j"))
+    cmdline_parser.add_argument("--db_pswd", default=os.environ.get("NEO4J_PSWD", "neo4j_password"))
     cmdline_parser.add_argument(
         "-i", "--input", help="JSON file to import, '-' to read from STDIN. default: '-'", default="-"
     )
@@ -32,12 +35,14 @@ if __name__ == "__main__":
     else:
         stream_input = sys.stdin
 
-    consumer = Consumer(args.db_host, args.db_user, args.db_pswd)
+    consumer = Consumer(f"neo4j://{args.db_host}:{args.db_port}", args.db_user, args.db_pswd)
     iterator = tqdm.tqdm(stream_input, total=total_lines, unit="line")
     for l in iterator:
         consumer.feed_line(l)
         if args.stop_it is not None and iterator.n > args.stop_it:
             break
+        if iterator.n % 10000 == 0:
+            logger.info(str(iterator))
 
     consumer.close()
     iterator.close()

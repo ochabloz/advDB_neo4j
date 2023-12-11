@@ -2,9 +2,9 @@ import json
 import re
 from neo4j import GraphDatabase
 
-URI = "neo4j://192.168.0.121:7687"
-USERNAME = "neo4j"
-PASSWORD = "Password123."
+from logging import getLogger
+
+logger = getLogger()
 
 # flush DB
 # match (a) -[r] -> () delete a, r; match (a) delete a
@@ -16,8 +16,8 @@ class Article:
     def __init__(self, _id, title):
         self._id=_id
         self.title=re.sub(r'"',r'\"',str(title))
-    def to_string(self):
-            print(str(self._id)+" "+str(self.title))
+    def __repr__(self):
+            return str(self._id)+" "+str(self.title)
 
 class Author:
     def __init__(self, _id, name):
@@ -227,7 +227,7 @@ class Consumer:
 
     @staticmethod
     def _run_query(tx, query):
-        print(f"query: {query}")
+        logger.debug("Query: %s", query)
         result = tx.run(query)
         #print("")
         return result
@@ -236,6 +236,9 @@ class Consumer:
 
 if __name__ == "__main__":
     print('Hello neo4j Exporter!')
+    URI = "neo4j://192.168.0.121:7687"
+    USERNAME = "neo4j"
+    PASSWORD = "Password123."
     with open('dblp/mega_lines_2.json','r', encoding="utf-8") as file:
         my_consumer = Consumer(URI, USERNAME, PASSWORD) # init
         my_consumer.flush_db() # to always start from an empty DB
