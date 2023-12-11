@@ -11,6 +11,8 @@ Baseline:
 	Number of entries processed: 5354309, total time: 1:07:51.236645
 	Average: 0.00076[s] per line
 
+Benchmarking:
+	current: TX limit: 200, RAM limit: 2G, 20k lines in 17min 30s
 
 ## References
 

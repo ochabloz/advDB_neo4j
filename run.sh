@@ -5,6 +5,8 @@ DL_FILE="/data/dblp.7z"
 
 if [ ! -f "$DL_FILE" ]; then
     wget $DBLP_ARCHIVE_URL -O $DL_FILE
+else
+    sleep 30
 fi
 
 7zz x $DL_FILE -so \
