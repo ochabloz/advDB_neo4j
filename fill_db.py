@@ -15,14 +15,14 @@ logger = getLogger()
 class Article:
     def __init__(self, _id, title):
         self._id=_id
-        self.title=re.sub(r'"',r'\"',str(title))
+        self.title=re.sub(r'"',r'\\"',re.sub(r'\\',r'\\\\',str(title)))
     def __repr__(self):
             return str(self._id)+" "+str(self.title)
 
 class Author:
     def __init__(self, _id, name):
         self._id=_id
-        self.name=re.sub(r'"',r'\"',str(name))
+        self.name=re.sub(r'"',r'\\"',str(name))
 
 class Cites:
     def __init__(self, article_id_left, article_id_right):
@@ -38,7 +38,7 @@ class Consumer:
 
     def __init__(self, uri, user, password):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
-        self.tx_limit=1000 # this number controls the fast: the bigger it is the faster it goes, but the more RAM (DB and Python !!) is needed
+        self.tx_limit=1500 # this number controls the fast: the bigger it is the faster it goes, but the more RAM (DB and Python !!) is needed
         self.tmp_article_array = []
         self.tmp_author_array = []
         self.tmp_cites_array = []
@@ -64,7 +64,7 @@ class Consumer:
             for author in line_dict["authors"]:
                 if not '_id' in author:
                     tmp_auth_name = author.get("name", None)
-                    print(f"missing id: name {tmp_auth_name}") # what do we do with these?
+                    # print(f"missing id: name {tmp_auth_name}") # what do we do with these?
                     break
                 tmp_author = Author(author["_id"],author.get("name", None))
                 tmp_authored = Authored(tmp_author._id,tmp_article._id)
@@ -244,9 +244,14 @@ if __name__ == "__main__":
         my_consumer.flush_db() # to always start from an empty DB
         my_consumer.set_constraints()
 
+        count = 0
         for line in file:
+            if count > 10000:
+                break
             my_consumer.feed_line(line)
+            count += 1
         my_consumer.close() # vital, push the element in buffer before closing the app
+        
             
 
 '''
