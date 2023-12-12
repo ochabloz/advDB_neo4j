@@ -1,6 +1,13 @@
 # Advance Database TP2 Neo4j import optimisation
 
 ## How to run
+on a machine with docker-compose:
+
+	docker-compose build
+	docker-compose up
+
+	# when you are done:
+	docker-compose down
 
 ## What to expect (Benchmarks)
 
