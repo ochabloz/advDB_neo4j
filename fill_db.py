@@ -17,7 +17,7 @@ class Article:
         self._id=_id
         self.title=re.sub(r'"',r'\\"',re.sub(r'\\',r'\\\\',str(title)))
     def __repr__(self):
-            return str(self._id)+" "+str(self.title)
+        return str(self._id)+" "+str(self.title)
 
 class Author:
     def __init__(self, _id, name):
@@ -137,7 +137,7 @@ class Consumer:
             UNWIND batch_articles AS article
             MERGE (a:Article { _id: article._id})
             SET a.title = article.title
-        """, articles=articles)
+        """, articles=articles, database_="neo4j")
         logger.info("added %d articles", len(articles))
             #print(result)
 
@@ -149,7 +149,7 @@ class Consumer:
             UNWIND batch_authors AS author
             MERGE (a:Author { _id: author._id})
             SET a.name = author.name
-        """, authors=authors)
+        """, authors=authors, database_="neo4j")
 
         logger.info("added %d authors", len(authors))
             #print(result)
@@ -161,7 +161,7 @@ class Consumer:
             WITH $citess AS batch_citess
             UNWIND batch_citess AS cites
             MERGE (a:Article { _id: cites.article_id_left }) MERGE (b:Article { _id: cites.article_id_right}) MERGE  (a) -[:CITES]-> (b)
-        """, citess=citess)
+        """, citess=citess, database_="neo4j")
         logger.info("added %d cites", len(citess))
 
         # with self.driver.session() as session:
@@ -186,26 +186,21 @@ class Consumer:
             WITH $authoreds AS batch_authoreds
             UNWIND batch_authoreds AS authored
             MERGE (a:Author { _id: authored.author_id }) MERGE (b:Article { _id: authored.article_id}) MERGE  (a) -[:AUTHAURED]-> (b)
-        """, authoreds=authoreds)
+        """, authoreds=authoreds, database_="neo4j")
         logger.info("added %d authoreds", len(authoreds))
             #print(result)
 
 
     def set_constraints(self): # should speed MERGE like crazy
-        with self.driver.session() as session:
-            tx_query01 = f"DROP CONSTRAINT article_id IF EXISTS"
-            tx_query02 = f"DROP CONSTRAINT author_id IF EXISTS"
-            tx_query1 = f"CREATE CONSTRAINT article_id FOR (a:Article) REQUIRE a._id IS UNIQUE"
-            tx_query2 = f"CREATE CONSTRAINT author_id FOR (b:Author) REQUIRE b._id IS UNIQUE"
-            result = session.execute_write(self._run_query, tx_query01)
-            result = session.execute_write(self._run_query, tx_query02)
-            result = session.execute_write(self._run_query, tx_query1)
-            result = session.execute_write(self._run_query, tx_query2)
-            #print(result)
+        self.driver.execute_query("DROP CONSTRAINT article_id IF EXISTS", database_="neo4j")
+        self.driver.execute_query("DROP CONSTRAINT author_id IF EXISTS", database_="neo4j")
+        self.driver.execute_query("CREATE CONSTRAINT article_id FOR (a:Article) REQUIRE a._id IS UNIQUE", database_="neo4j")
+        self.driver.execute_query("CREATE CONSTRAINT author_id FOR (b:Author) REQUIRE b._id IS UNIQUE", database_="neo4j")
+
 
     def flush_db(self):
         with self.driver.session() as session:
-            tx_query = f"MATCH (n) DETACh DELETE n"
+            tx_query = f"MATCH (n) DETACH DELETE n"
             #tx_query1 = f"MATCH (a) -[r] -> () DELETE a, r"
             #tx_query2 = f"MATCH (a) DELETE a"
 
