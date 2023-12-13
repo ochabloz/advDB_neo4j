@@ -23,11 +23,21 @@ Baseline (the time it takes for the pipe `7z` | `jq` | `py` to stream the whole 
 
 Benchmarking on the completed application:
 
-	current:  TX limit:  200, RAM limit: 2G, 20k lines in  0min 28s
+	current:  TX limit:  200, RAM limit: 2G, 20k lines in  0min 22s  # select explicitly 'neo4j' database
+	previous: TX limit:  200, RAM limit: 2G, 20k lines in  0min 28s # unique constrain on ids
 	previous: TX limit:  200, RAM limit: 2G, 20k lines in 17min 30s
 
 	Number of entries processed: 5354309, total time: 17:31:38.410965 # TX limit: 1500, RAM limit: 2G
 	Average: 0.01178[s] per line
+
+	Number of entries processed: 5354309, total time: 4:01:41.073429  # TX limit: 2000, RAM limit: 4G
+	Average: 0.00271[s] per line
+
+	Number of entries processed: 5354309, total time: 4:23:38.101628  # TX limit: 1500, RAM limit: 4G
+	Average: 0.00295[s] per line
+
+	Number of entries processed: 5354309, total time: 5:36:04.685036 # TX limit: 10000, RAM limit: 4G
+	Average: 0.00377[s] per line
 
 ## References
 
