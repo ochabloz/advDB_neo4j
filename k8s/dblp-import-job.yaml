@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  annotations:
+    kompose.cmd: ./kompose convert
+    kompose.version: 1.26.0 (40646f47)
+  creationTimestamp: null
+  name: dblp-import
+  namespace: adv-da-ba23-chb
+spec:
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: ./kompose convert
+        kompose.version: 1.26.0 (40646f47)
+      creationTimestamp: null
+    spec:
+      containers:
+        - env:
+            - name: DBLP_TX_SIZE
+              value: "2000"
+            - name: DB_HOST
+              value: dblp-neo4j
+            - name: DB_USER
+              value: neo4j
+            - name: DB_PASWD
+              value: neo4j_password
+            - name: DB_PORT
+              value: "7687"
+          image: bucket6823/dblp-importer:latest
+          name: dblp-import
+          resources: {}
+          volumeMounts:
+            - mountPath: /data
+              name: dblp-import-data
+      restartPolicy: Never
+      volumes:
+        - name: dblp-import-data
+          persistentVolumeClaim:
+            claimName: dblp-import-data
+status: {}
