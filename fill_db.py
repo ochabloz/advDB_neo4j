@@ -1,5 +1,6 @@
 import json
 import re
+import os
 from neo4j import GraphDatabase
 
 from logging import getLogger
@@ -24,15 +25,32 @@ class Author:
         self._id=_id
         self.name=re.sub(r'"',r'\\"',str(name))
 
-class Cites:
-    def __init__(self, article_id_left, article_id_right):
-        self.article_id_left=article_id_left
-        self.article_id_right=article_id_right
+class CSV_cache:
+    def __init__(self, file_name, header=None):
+        self.file_name = file_name
+        self.size = 0
+        if os.path.exists(self.file_name):
+            os.remove(self.file_name)
+        if header is not None:
+            self.push(header)
 
-class Authored:
-    def __init__(self, author_id, article_id):
-        self.author_id=author_id
-        self.article_id=article_id
+    def push(self, data):
+        with open(self.file_name, mode='a') as file:
+            for row in data:
+                self.size += 1
+                line = ','.join(str(item) for item in row) + '\n'
+                file.write(line)
+
+    def get(self):
+        with open(self.file_name, mode='r') as file:
+            for line in file:
+                yield line.strip().split(',')
+
+    def __len__(self):
+        return self.size
+        
+def write_tx(tx, query, **params):
+    return tx.run(query, **params)
 
 class Consumer:
 
@@ -45,6 +63,8 @@ class Consumer:
         self.tmp_authored_array = []
         self._stats_missing_author = 0
         self._stats_missing_titles = 0
+        self.cites_cache = CSV_cache("cites_cache.csv")#, [":START_ID",":END_ID",":TYPE"])
+        self.authored_cache = CSV_cache("authored_cache.csv")
 
     def feed_line(self, json_line):
         line_dict = json.loads(json_line) # maybe replace with the panda version
@@ -60,20 +80,17 @@ class Consumer:
         tmp_article = Article(line_dict["_id"],line_dict.get("title",None))
         self.insert_article(tmp_article)
         if(citation_flag):
-            for references in line_dict["references"]:
-                tmp_cites = Cites(tmp_article._id,references)
-                self.insert_cites(tmp_cites)
+            for references in set(line_dict["references"]):
+                #tmp_cites = Cites(tmp_article._id,references)
+                self.insert_cites((tmp_article._id, references))
         if(authored_flag):
-            for author in line_dict["authors"]:
-                if not '_id' in author:
-                    self._stats_missing_author +=1
-                    #tmp_auth_name = author.get("name", None)
-                    #print(f"missing id: name {tmp_auth_name}") # what do we do with these?
-                    break
-                tmp_author = Author(author["_id"],author.get("name", None))
-                tmp_authored = Authored(tmp_author._id,tmp_article._id)
+            authors = {a["_id"]: a.get("name", None) for a in line_dict["authors"] if "_id" in a}
+            self._stats_missing_author += len(line_dict["authors"]) - len(authors)
+            for author_id, name in authors.items():
+                tmp_author = Author(author_id, name)
+                #tmp_authored = Authored(tmp_author._id,tmp_article._id)
                 self.insert_author(tmp_author)
-                self.insert_authored(tmp_authored)
+                self.insert_authored((author_id, tmp_article._id))
 
         
         
@@ -83,10 +100,30 @@ class Consumer:
             self.insert_articles(self.tmp_article_array)
         if (len(self.tmp_author_array) != 0):
             self.insert_authors(self.tmp_author_array)
+
         if (len(self.tmp_cites_array) != 0):
-            self.insert_citess(self.tmp_cites_array)
+            self.cites_cache.push(self.tmp_cites_array)
+
         if (len(self.tmp_authored_array) != 0):
-            self.insert_authoreds(self.tmp_authored_array)
+            self.authored_cache.push(self.tmp_authored_array)
+
+
+        tmp_cites = []
+        for c in self.cites_cache.get():
+            tmp_cites.append(c)
+            if len(tmp_cites) >= self.tx_limit:
+                self.insert_citess(tmp_cites)
+                tmp_cites.clear()
+        self.insert_citess(tmp_cites)
+
+        tmp_authored = []
+        for c in self.authored_cache.get():
+            tmp_authored.append(c)
+            if len(tmp_authored) >= self.tx_limit:
+                self.insert_authoreds(tmp_authored)
+                tmp_authored.clear()
+        self.insert_authoreds(tmp_authored)
+
         logger.info("Consumer closed. Number of missing: authors ID: %d, titles ID %d", self._stats_missing_author, self._stats_missing_titles)
         self.driver.close()
 
@@ -110,14 +147,16 @@ class Consumer:
         self.tmp_cites_array.append(cites)
 
         if (len(self.tmp_cites_array) >= self.tx_limit) or force:
-            self.insert_citess(self.tmp_cites_array)
+            #self.insert_citess(self.tmp_cites_array)
+            self.cites_cache.push(self.tmp_cites_array)
             self.tmp_cites_array.clear()
 
     def insert_authored(self, authored, force=False):
         self.tmp_authored_array.append(authored)
 
         if (len(self.tmp_authored_array) >= self.tx_limit) or force:
-            self.insert_authoreds(self.tmp_authored_array)
+            #self.insert_authoreds(self.tmp_authored_array)
+            self.authored_cache.push(self.tmp_authored_array)
             self.tmp_authored_array.clear()
 
     '''   
@@ -135,8 +174,7 @@ class Consumer:
         result = self.driver.execute_query("""
             WITH $articles AS batch_articles
             UNWIND batch_articles AS article
-            MERGE (a:Article { _id: article._id})
-            SET a.title = article.title
+            CREATE (a:Article { _id: article._id, title: article.title})
         """, articles=articles, database_="neo4j")
         logger.info("added %d articles", len(articles))
             #print(result)
@@ -156,11 +194,11 @@ class Consumer:
 
     # act like the function below is private
     def insert_citess(self, citess):
-        citess = [{"article_id_left": cites.article_id_left, "article_id_right": cites.article_id_right} for cites in citess]
-        result = self.driver.execute_query("""
+        citess = [{"article_id_left": cites[0], "article_id_right": cites[1]} for cites in citess]
+        self.driver.execute_query("""
             WITH $citess AS batch_citess
             UNWIND batch_citess AS cites
-            MERGE (a:Article { _id: cites.article_id_left }) MERGE (b:Article { _id: cites.article_id_right}) MERGE  (a) -[:CITES]-> (b)
+            MATCH (a:Article { _id: cites.article_id_left }) MATCH (b:Article { _id: cites.article_id_right}) CREATE  (a) -[:CITES]-> (b)
         """, citess=citess, database_="neo4j")
         logger.info("added %d cites", len(citess))
 
@@ -181,11 +219,11 @@ class Consumer:
 
     # act like the function below is private
     def insert_authoreds(self, authoreds):
-        authoreds = [{"author_id": authored.author_id, "article_id": authored.article_id} for authored in authoreds]
-        result = self.driver.execute_query("""
+        authoreds = [{"author_id": authored[0], "article_id": authored[1]} for authored in authoreds]
+        self.driver.execute_query("""
             WITH $authoreds AS batch_authoreds
             UNWIND batch_authoreds AS authored
-            MERGE (a:Author { _id: authored.author_id }) MERGE (b:Article { _id: authored.article_id}) MERGE  (a) -[:AUTHAURED]-> (b)
+            MATCH (a:Author { _id: authored.author_id }) MATCH (b:Article { _id: authored.article_id}) CREATE  (a) -[:AUTHAURED]-> (b)
         """, authoreds=authoreds, database_="neo4j")
         logger.info("added %d authoreds", len(authoreds))
             #print(result)
