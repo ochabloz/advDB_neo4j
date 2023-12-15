@@ -45,6 +45,10 @@ Benchmarking on the completed application:
 	Number of entries processed: 5354309, total time: 4:37:57.333567 # TX limit:  2000, RAM limit: 2G  (Merge only on authors)
 	Average: 0.00311[s] per line
 
+  	Submission:
+	Number of entries processed: 5354309, total time: 21:17:49.079976 # total in seconds: 76'669
+	Average: 0.01432[s] per line
+
 ## References
 
 - [Streaming with jq](https://www.reddit.com/r/bash/comments/myoft4/streaming_with_jq/)
